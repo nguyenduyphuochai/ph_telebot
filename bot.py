@@ -7,8 +7,8 @@ import schedule
 from telegram import Bot
 
 # Get credentials from Railway environment variables
-BOT_TOKEN = os.getenv("8192269061:AAHerPSYVwOh4JIpkpEJ7UFV-QLBXbpyhlY")
-CHAT_ID = os.getenv("ph_2handlandbot")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
 # URL to scrape
 URL = "https://2handland.com/muon-mua"
