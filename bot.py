@@ -1,82 +1,63 @@
-#!/usr/bin/env python
-# pylint: disable=unused-argument
-# This program is dedicated to the public domain under the CC0 license.
-
-"""
-Simple Bot to reply to Telegram messages.
-
-First, a few handler functions are defined. Then, those functions are passed to
-the Application and registered at their respective places.
-Then, the bot is started and runs until we press Ctrl-C on the command line.
-
-Usage:
-Basic Echobot example, repeats messages.
-Press Ctrl-C on the command line or send a signal to the process to stop the
-bot.
-"""
-
-import logging
 import os
+import requests
+from bs4 import BeautifulSoup
+import json
+import time
+import schedule
+from telegram import Bot
 
-from dotenv import load_dotenv
-from telegram import ForceReply, Update
-from telegram.ext import Application, ContextTypes
+# Get credentials from Railway environment variables
+BOT_TOKEN = os.getenv("8192269061:AAHerPSYVwOh4JIpkpEJ7UFV-QLBXbpyhlY")
+CHAT_ID = os.getenv("ph_2handlandbot")
 
-# Enable logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-# set higher logging level for httpx to avoid all GET and POST requests being logged
-logging.getLogger("httpx").setLevel(logging.WARNING)
+# URL to scrape
+URL = "https://2handland.com/muon-mua"
+CATEGORIES = ["Máy chơi game cũ", "Phụ kiện cũ"]
 
-logger = logging.getLogger(__name__)
+# Load previous listings
+try:
+    with open("listings.json", "r") as file:
+        previous_listings = json.load(file)
+except FileNotFoundError:
+    previous_listings = []
 
+bot = Bot(token=BOT_TOKEN)
 
-# Define a few command handlers. These usually take the two arguments update and
-# context.
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
-    user = update.effective_user
-    await update.message.reply_html(
-        rf"Hi {user.mention_html()}!",
-        reply_markup=ForceReply(selective=True),
-    )
+def scrape_listings():
+    global previous_listings
+    response = requests.get(URL)
+    soup = BeautifulSoup(response.text, "html.parser")
 
+    new_listings = []
+    
+    for item in soup.select(".product-item"):  # Adjust selector if necessary
+        title = item.select_one(".product-title").text.strip()
+        category = item.select_one(".product-category").text.strip()
+        price = item.select_one(".product-price").text.strip()
+        link = item.select_one("a")["href"]
+        image = item.select_one("img")["src"]
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /help is issued."""
-    await update.message.reply_text("Help!")
+        if category in CATEGORIES:
+            listing = {"title": title, "category": category, "price": price, "link": link, "image": image}
+            new_listings.append(listing)
 
+    # Check for new listings
+    new_items = [item for item in new_listings if item not in previous_listings]
+    if new_items:
+        for item in new_items:
+            message = f"📢 *New Listing: {item['title']}*\n🏷 *Category:* {item['category']}\n💰 *Price:* {item['price']}\n🔗 [View Listing]({item['link']})"
+            bot.send_photo(chat_id=CHAT_ID, photo=item["image"], caption=message, parse_mode="Markdown")
+        
+        # Update previous listings
+        previous_listings = new_listings
+        with open("listings.json", "w") as file:
+            json.dump(previous_listings, file)
 
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Echo the user message."""
-    await update.message.reply_text(update.message.text)
-
+# Schedule the bot to run every 10 minutes
+schedule.every(10).minutes.do(scrape_listings)
 
 if __name__ == "__main__":
-    load_dotenv()
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
-    dev_mode = os.environ.get("DEV_MODE", "False").lower() == "True"
-
-    application = Application.builder().token(token).build()
-
-    if dev_mode:
-        # Webhook settings
-        webhook_url = os.environ.get("WEBHOOK_URL")
-        port = int(os.environ.get("PORT", 8443))
-
-        # Set webhook
-        application.bot.set_webhook(
-            url=f"{webhook_url}/{token}",
-            drop_pending_updates=True
-        )
-
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            url_path=token,
-            webhook_url=f"{webhook_url}/{token}"
-        )
-    else:
-        application.run_polling()
-
+    print("Bot is running...")
+    while True:
+        schedule.run_pending()
+        time.sleep(60)
